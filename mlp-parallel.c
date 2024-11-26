@@ -4,6 +4,7 @@
 #include <math.h>
 #include <time.h>
 #include <sys/time.h>
+#include <omp.h>
 
 // Estrutura para representar um neurônio
 typedef struct
@@ -125,13 +126,17 @@ float *perceptron(Neuronio *camada, int numNeuronios, float *entradas, int numEn
     if (!arrSomatorios)
         return NULL;
 
+#pragma omp parallel for
+
     for (int neuronio = 0; neuronio < numNeuronios; neuronio++)
     {
         float somatorio = 0.0f;
+
         for (int entrada = 0; entrada < numEntradas; entrada++)
         {
             somatorio += entradas[entrada] * camada[neuronio].pesos[entrada];
         }
+
         somatorio += bias;
         // Aplicar função de ativação
         float r = funcaoAtivacao1(somatorio);
@@ -149,6 +154,8 @@ float *respostaCamada(Neuronio *camada, int numNeuronios)
     float *resp = malloc(numNeuronios * sizeof(float));
     if (!resp)
         return NULL;
+
+#pragma omp parallel for
     for (int neuronio = 0; neuronio < numNeuronios; neuronio++)
     {
         resp[neuronio] = camada[neuronio].saida;
@@ -163,6 +170,7 @@ float *gradienteErroSaida(float *saidaRede, int *saidaEsperada, int tamanho)
     if (!erro)
         return NULL;
 
+#pragma omp parallel for
     for (int i = 0; i < tamanho; i++)
     {
         float derivada = derivadaFuncAtivacao1(saidaRede[i]);
@@ -175,6 +183,7 @@ float *gradienteErroSaida(float *saidaRede, int *saidaEsperada, int tamanho)
 // Função para corrigir os pesos dos neurônios
 void correcaoErro(Neuronio *camada, int numNeuronios, float aprendizado, float *erro, float *entradaNeuronio, int numEntradas)
 {
+#pragma omp parallel for
     for (int neuronio = 0; neuronio < numNeuronios; neuronio++)
     {
         for (int conn = 0; conn < numEntradas; conn++)
@@ -189,6 +198,8 @@ void correcaoErro(Neuronio *camada, int numNeuronios, float aprendizado, float *
 float correcaoBias(float bias, float *erro, int tamanhoErro, float aprendizado)
 {
     float sumError = 0.0f;
+
+#pragma omp parallel for reduction(+ : sumError)
     for (int i = 0; i < tamanhoErro; i++)
     {
         sumError += erro[i];
@@ -213,16 +224,32 @@ int compararArrays(int *a, int *b, int tamanho)
 // Função que determina o resultado da rede neural
 int resultados(float *respCamadaSaida, int *esperado, int tamanho)
 {
-    // Encontrar o índice com o maior valor em respCamadaSaida
     int maxIndex = 0;
-    for (int i = 1; i < tamanho; i++)
+    float maxValue = respCamadaSaida[0];
+
+#pragma omp parallel
     {
-        if (respCamadaSaida[i] > respCamadaSaida[maxIndex])
+        int localMaxIndex = 0;
+        float localMaxValue = respCamadaSaida[0];
+
+#pragma omp for
+        for (int i = 1; i < tamanho; i++)
         {
-            maxIndex = i;
+            if (respCamadaSaida[i] > localMaxValue)
+            {
+                localMaxValue = respCamadaSaida[i];
+                localMaxIndex = i;
+            }
+        }
+#pragma omp critical
+        {
+            if (localMaxValue > maxValue)
+            {
+                maxValue = localMaxValue;
+                maxIndex = localMaxIndex;
+            }
         }
     }
-    // Criar a array de predição
     int predicao[3] = {0, 0, 0};
     predicao[maxIndex] = 1;
 
@@ -244,6 +271,7 @@ float *gradienteErroOculto(Neuronio *camadaOculta, Neuronio *camadaSaida, float 
     if (!erroOculto)
         return NULL;
 
+#pragma omp parallel for
     for (int j = 0; j < numNeuroniosOcultos; j++)
     {
         float sum = 0.0f;
@@ -259,6 +287,8 @@ float *gradienteErroOculto(Neuronio *camadaOculta, Neuronio *camadaSaida, float 
 
 int main()
 {
+    omp_set_num_threads(12);
+
     struct timeval start, stop;
 
     // Inicialização dos pesos e neurônios de entrada
@@ -271,8 +301,9 @@ int main()
     }
 
     // Inicialização dos neurônios ocultos
-    int numNeuroniosOcultos = 1000; // Número menor para simplicidade
+    int numNeuroniosOcultos = 15000; // Número menor para simplicidade
     Neuronio neuronioOculto[numNeuroniosOcultos];
+
     for (int i = 0; i < numNeuroniosOcultos; i++)
     {
         neuronioOculto[i].pesos = malloc(4 * sizeof(float));
@@ -286,6 +317,7 @@ int main()
     // Inicialização dos neurônios de saída
     int numNeuroniosSaida = 3;
     Neuronio neuroniosSaida[numNeuroniosSaida];
+
     for (int i = 0; i < numNeuroniosSaida; i++)
     {
         neuroniosSaida[i].pesos = malloc(numNeuroniosOcultos * sizeof(float));
@@ -349,7 +381,6 @@ int main()
             // Cálculo do erro
             float *erroSaida = gradienteErroSaida(respSaida, trainingData[i].label, numNeuroniosSaida);
             float *erroOculto = gradienteErroOculto(neuronioOculto, neuroniosSaida, erroSaida, numNeuroniosOcultos, numNeuroniosSaida);
-
 
             // Atualização dos pesos da camada de saída
             correcaoErro(neuroniosSaida, numNeuroniosSaida, aprendizado, erroSaida, respOculto, numNeuroniosOcultos);
