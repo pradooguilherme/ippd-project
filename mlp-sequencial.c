@@ -271,7 +271,7 @@ int main()
     }
 
     // Inicialização dos neurônios ocultos
-    int numNeuroniosOcultos = 1000; // Número menor para simplicidade
+    int numNeuroniosOcultos = 15000; // Número menor para simplicidade
     Neuronio neuronioOculto[numNeuroniosOcultos];
     for (int i = 0; i < numNeuroniosOcultos; i++)
     {
